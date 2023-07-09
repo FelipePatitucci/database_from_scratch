@@ -2,6 +2,9 @@ import logging
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Tuple, Union
+import numpy as np
+import pandas as pd
+from itertools import islice
 from .helpers import (
     check_between,
     read_and_decode,
@@ -211,7 +214,7 @@ class FixedHeap:
         if log_info:
             logging.info('Register added!')
 
-    def single_insert(self, *args) -> None:
+    def single_insert(self, *args) -> int:
         result = ''
         for info in args:
             result += str(info)
@@ -221,19 +224,20 @@ class FixedHeap:
         byte_result = bytearray(result, 'utf-8')
         # no free spot, append on the end
         if avaliable_spot == -1:
-            self._write_on_end([[byte_result], 1])
+            self._write_on_end([[byte_result], 1], True)
         else:
             self._write_on_free_spot(result, avaliable_spot)
         self._update_desired_fields(
             fields=['amount', 'timestamp'], amounts=[1, 1])
+        return 1
 
-    def bulk_insert(self, registers: List[List]) -> None:
+    def bulk_insert(self, registers: List[List]) -> int:
         free_space = True
         curr_index = 0
         total_registers = len(registers)
         while free_space:
             for _, register_info in enumerate(registers):
-                register = ''.join(register_info)
+                register = ''.join([str(item) for item in register_info])
                 # this space will be consumed for the next write
                 register += ' '
                 avaliable_spot = self._find_avaliable_spot()
@@ -255,14 +259,48 @@ class FixedHeap:
             self._write_on_end([write_list, total_registers-curr_index])
         self._update_desired_fields(
             fields=['amount', 'timestamp'], amounts=[total_registers, 1])
+        logging.info(f'{total_registers} register(s) added!')
+        return 1
 
     def single_select(self, pk_col: str, pk_value: Any) -> None:
         result, _ = self._scan_till_key(pk_col, pk_value)
         if result == '':
-            logging.info(f'The register {pk_value} '
+            logging.info(f'The value {pk_value} '
                          f'does not exists on column {pk_col}.')
         else:
-            print(result)
+            pretty_result = self._format_select_result(result)
+            print(pretty_result)
+
+    def _format_select_result(self, register: str) -> pd.DataFrame:
+        result = read_and_decode(
+            self.file_name, 0, MAX_HEADER_COLUMNS).split(';')[:-1]
+        sizes = [int(i.split(':')[1]) for i in result]
+        it = iter(register)
+        sliced = [list(islice(it, 0, i)) for i in sizes]
+        data = {name: [''.join(item)]
+                for name, item in zip(self.column_names, sliced)}
+        return pd.DataFrame(data=data)
+
+    def _format_multiple_results(self, registers: str) \
+            -> pd.DataFrame:
+        result = read_and_decode(
+            self.file_name, 0, MAX_HEADER_COLUMNS).split(';')[:-1]
+        sizes = [int(i.split(':')[1]) for i in result]
+        # consider the break line character as a column
+        sizes.append(1)
+        total_sizes = sum(sizes)
+        cumulative = [0] + list(np.cumsum(np.array(sizes)))
+        registers_list = [registers[i:i+total_sizes] for i
+                          in range(0, len(registers), total_sizes)]
+        registers_spaced = []
+        for reg in registers_list:
+            registers_spaced += \
+                [[reg[ant:curr] for ant, curr
+                  in zip(cumulative[0:-1], cumulative[1:])]]
+        final_ans = [list(items) for items in zip(*registers_spaced)]
+        data = {name: item
+                for name, item in zip(self.column_names, final_ans)}
+        return pd.DataFrame(data=data)
 
     def _scan_till_key(self, pk_col: str, pk_value: Any,
                        silenced: bool = False) -> Tuple[str, int]:
@@ -271,6 +309,7 @@ class FixedHeap:
         If it exists, returns the register string.
         Returns blank string otherwise.
         '''
+        pk_value = str(pk_value)
         column_size, size_till_column, total_size = self._get_column_and_total_value(
             pk_col)
         initial_pos = self._get_value_from_field('first_register')
@@ -281,8 +320,8 @@ class FixedHeap:
             f.seek(int(initial_pos) + size_till_column)
             while cont <= amount:
                 # read specific column to check for equality
-                result = f.read(column_size).decode().strip(' ')
-                if result == pk_value:
+                temp_result = f.read(column_size).decode().strip(' ')
+                if temp_result == pk_value:
                     if not silenced:
                         logging.info('Register found!')
                     # if found, read full register
@@ -303,10 +342,12 @@ class FixedHeap:
         If it exists, returns the register strings.
         Returns blank string otherwise.
         '''
+        values = [str(val) for val in values]
         column_size, size_till_column, total_size = \
             self._get_column_and_total_value(target_col)
         initial_pos = self._get_value_from_field('first_register')
         amount = int(self._get_value_from_field('amount'))
+        # column_type = self._get_column_type(target_col)
         cont, pointer, total_found = 0, 0, 0
         final_result = ''
         with open(file=self.file_name, mode='r+b') as f:
@@ -329,12 +370,25 @@ class FixedHeap:
             pointer += f.tell() - total_size
         return final_result, pointer, total_found
 
+    def _get_column_type(self, target_col: str) -> str:
+        result = ''
+        for col_name, col_type in zip(self.column_names, self.register_types):
+            if col_name == target_col:
+                result = col_type
+                break
+        if not result:
+            logging.warning(f'The column {target_col} does not exists!')
+            raise ValueError
+        return result
+
     def select_all(self, target_col: str,
                    values: List[Any], all_between: bool = False) -> None:
         records, _, total_found = self._scan_file_for_values(
-            target_col, values, all_between)
+            target_col, values, all_between, True)
         print(f'Found {total_found} records satisfying the conditions.')
-        print(records)
+        # pretty print
+        final = self._format_multiple_results(records)
+        print(final.head(total_found))
 
     def single_delete(self, pk_col: str, pk_value: str) -> None:
         # find pointer to start of register and get total register size
@@ -392,3 +446,39 @@ class FixedHeap:
         total_register_size = sum([int(value.split(':')[1])
                                   for value in pairs])
         return int(column_size), total_size_till_column, total_register_size
+
+    def populate_from_csv_file(self, file_path: str, separator: str = ',',
+                               max_lines: int = 1000) -> None:
+        total_lines = 0
+        final_text = ''
+        register_size = self._get_size_of_register()
+        logging.info(f'Loading data from file {file_path}')
+        with open(file_path, 'r+', encoding='utf-8') as f:
+            for line in f:
+                if total_lines == max_lines + 1:
+                    # max line per iteration reached
+                    break
+                # skip header
+                if total_lines == 0:
+                    total_lines += 1
+                    continue
+                text = ''.join(line[:-1].split(separator))
+                # this register has some character that does not belong
+                # to regular 127 ASCII table, so it exceeds the
+                # register max size, cannot add to database
+                if len(text.encode("utf-8")) > register_size:
+                    logging.warning(
+                        f'The register {text} cannot be added because'
+                        f' it uses a character that does not belongs to ASCII 127.')
+                    continue
+                final_text += ''.join(line[:-1].split(separator))
+                total_lines += 1
+            final_text += ' '
+        # write the registers
+        with open(file=self.file_name, mode='r+b') as f:
+            f.seek(-1, 2)
+            f.write(bytearray(final_text, 'utf-8'))
+        logging.info(
+            f'Populated database with {total_lines - 1} records from {file_path}!')
+        self._update_desired_fields(
+            fields=['amount', 'timestamp'], amounts=[total_lines - 1, 1])
