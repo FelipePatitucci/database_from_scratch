@@ -55,9 +55,10 @@ table_name = 'animes_short_name'
 blocking_factor = 30
 fields = build_db_fields_from_csv(csv_file_path='test_file.csv')
 my_db = FixedHeap(file_name, table_name, blocking_factor, fields)
-# only run this next 2 lines on first time
-my_db.create_register_file()
-my_db.populate_from_csv_file('test_file.csv', ',')
+# only need to run on first time
+if not os.path.exists(file_name):
+    my_db.create_register_file()
+    my_db.populate_from_csv_file('test_file.csv', ',')
 my_db.single_select('title', 'Hajime no Ippo')
 my_db.select_all('score', [7.00, 7.20], all_between=True)
 my_db.single_insert(
