@@ -1,6 +1,6 @@
 Relatório
 
-Arquivo Heap SEM ordenação
+Arquivo Heap Fixo SEM ordenação
 
 Explicando a modelagem do arquivo Header. 
 Bom, vamos começar do início. Primeiro, existe uma parte com um formato do tipo:
@@ -93,5 +93,51 @@ Ex: First_Empty: 500. Indo para o espaço 500, encontramos '325'. Indo para 325,
 
 ---------------------
 
-Arquivo Heap COM ordenação
+Arquivo Heap Fixo COM ordenação
 
+
+---------------------
+
+Arquivo Heap Variável
+
+Ao inicializar um objeto da classe VariableHeap (Heap de tamanho variável) passamos o nome
+do arquivo a ser salvo 'filename' e uma lista com o nome das colunas da nossa base de dados
+(por exemplo: 'columns = ['nome','idade','cpf']'), gerando um arquivo .txt da forma 
+'|nome;idade;cpf;|'. Estaremos utilizando '|' para separar os registros, e ';' para separar
+as colunas de cada registro.
+
+Para adicionar novos registros na nossa base de dados, temos dois tipos de insert implementados,
+o 'insert' que adiciona um único registro no nosso arquivo, e o 'multiple_insert' que adiciona
+uma lista de registros. Para o 'insert' passamos um registro como uma lista, em que cada elemento
+é uma coluna, por exemplo, '['João', '27', '123.456.789-00']', e no 'multiple_insert' 
+uma lista em que cada elemento é um registro, como 
+'[['João', '27', '123.456.789-00'],['André','27','111.111.111-00']]'. A única checagem que
+fazemos é se o número de colunas de cada registro bate com o número de colunas da base de dados.
+Ao fim da operação de 'insert' ou de 'multiple_insert' fazemos um 'write' que atualiza
+o arquivo .txt gerado pelo objeto.
+
+Implementamos também alguns tipos de select em nossa classe, o primeiro é o 'select_by_value'
+onde passamos apenas uma 'key' que é o nome da coluna em que estamaremos procurando,
+e um 'value' que é o valor que queremos para dada 'key', por exemplo, queremos selecionar
+o registro onde o cpf é igual a '123.456.789-00' (output da forma: 
+'['João', '27', '123.456.789-00']'), isso pode ser feito para uma 'key' com valores únicos
+assim como com uma 'key' que possui valores repetidos como idade, digamos que queremos fazer
+um select de todos os registros com idade igual a 27 
+(output da forma: '[['João', '27', '123.456.789-00'],['André','27','111.111.111-00']]').
+
+Os outros tipos de select são 'select_by_list_of_values', em que ao invés de passarmos apenas
+um 'value' passamos uma lista de 'values', por exemplo, 'values=['João','André']' e o
+'select_between' que só serve para variáveis numéricas, onde passamos uma 'key',
+por exemplo 'idade', e dois valores como '10' e '50', e estaremos selecionando todos os 
+registros com idade entre 10 e 50.
+
+Em todos os selects citados, usamos um read para ler o arquivo .txt inteiro gerado ao
+inicializar o arquivo, e iteramos registro por registro comparando a 'key' de cada registro,
+com o 'value' passado.
+
+Se quisermos remover algum registro, podemos usar o 'delete', que funciona de forma parecida
+com o 'select_by_list_of_values' onde passamos uma 'key' e alguns 'values', selecionamos
+todos os registros que batem, e removemos eles do nosso arquivo .txt, para fazer isso,
+lemos o arquivo inteiro usando um read, iteramos de registro em registro, selecionando
+os que satisfazem o 'value' e removemos todos simultaneamente. Ao fim dessa operação escrevemos
+usando um write o novo arquivo .txt atualizado.
