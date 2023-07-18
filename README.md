@@ -84,8 +84,12 @@ Instalar bibliotecas:
 pip install -r requirements.txt
 ```
 
-Rodar exemplo de teste:
+Rodar exemplos de teste:
 
 ```sh
-python main.py
+python unordered_example.py
+```
+
+```sh
+python ordered_example.py
 ```

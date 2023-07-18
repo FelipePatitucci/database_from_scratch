@@ -11,9 +11,11 @@ POINTERS_INDEX = {
     'first_empty': 2,
     'first_register': 3
 }
+EXTENSION_TABLE_THRESHOLD = 4  # when to merge extension table
 MAX_HEADER_COLUMNS = 200
 MAX_SPACE_POINTERS = 64
 MAX_REGISTERS_LENGTH = 16
+MAX_SIZE_EXTENSION_TABLE = 3  # 999 registers inserted at once at max
 TIMESTAMP_LENGTH = 19
 NEXT_AVALIABLE_LENGTH = 16
 FIRST_REGISTER_LENGTH = 16

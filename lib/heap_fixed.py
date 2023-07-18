@@ -347,7 +347,7 @@ class FixedHeap:
             self._get_column_and_total_value(target_col)
         initial_pos = self._get_value_from_field('first_register')
         amount = int(self._get_value_from_field('amount'))
-        # column_type = self._get_column_type(target_col)
+        column_type = self._get_column_type(target_col)
         cont, pointer, total_found = 0, 0, 0
         final_result = ''
         with open(file=self.file_name, mode='r+b') as f:
@@ -356,7 +356,7 @@ class FixedHeap:
                 # read specific column to check for equality
                 result = f.read(column_size).decode().strip(' ')
                 if result in values or \
-                        (check_between(result, values) and all_between):
+                        (check_between(result, values, column_type) and all_between):
                     if not silenced:
                         logging.info('Register found!')
                     # if found, read full register

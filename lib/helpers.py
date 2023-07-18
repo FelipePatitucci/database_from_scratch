@@ -34,11 +34,14 @@ def convert_list_to_str(input_list: List[int]) -> str:
     return ''.join([str(i) for i in input_list])
 
 
-def check_between(result: str, values: List[Any]) -> bool:
+def check_between(result: str, values: List[Any], column_type: str) -> bool:
+    if column_type == 'FLOAT':
+        values, result = [float(i) for i in values], float(result)
     return (result <= max(values)) and (result >= min(values))
 
 
-def build_db_fields_from_csv(csv_file_path: str, separator: str = ',') -> Dict:
+def build_db_fields_from_csv(csv_file_path: str, separator: str = ',',
+                             logical_deletion: bool = False) -> Dict:
     lines = []
     with open(csv_file_path, 'r+', encoding='utf-8') as f:
         cont = 0
@@ -65,4 +68,7 @@ def build_db_fields_from_csv(csv_file_path: str, separator: str = ',') -> Dict:
         else:
             names[name]['type'] = 'CHAR'
             names[name]['size'] = len(value)
+    if logical_deletion:
+        logical_byte = {'logical_byte': {'type': 'CHAR', 'size': 1}}
+        return {**logical_byte, **names}
     return names
