@@ -1,5 +1,0 @@
-Estrutura do Arquivo para FixedHeap
-a:b;c:d... (1 par pra cada coluna, representando indice:tamanho)
-
-a-b;c-d;e-f;g-h;
-Range do valor de Amount; Range do Valor Timestamp; Range Primeiro Free Space; Range Primeiro Registro 
