@@ -355,6 +355,8 @@ class FixedHeap:
             while cont <= amount:
                 # read specific column to check for equality
                 result = f.read(column_size).decode().strip(' ')
+                if result == '':
+                    break
                 if result in values or \
                         (check_between(result, values, column_type) and all_between):
                     if not silenced:
@@ -363,6 +365,7 @@ class FixedHeap:
                     f.seek(-(size_till_column + column_size), 1)
                     final_result += f.read(total_size).decode().strip(' ') + '\n'
                     total_found += 1
+                    cont += 1
                     f.seek(size_till_column, 1)
                     continue
                 cont += 1
