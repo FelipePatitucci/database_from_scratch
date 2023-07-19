@@ -46,7 +46,8 @@ até que não haja mais espaço vazio. Daí, inserimos o resto no final.
 
 Depois dos inserts, atualizamos o Header do arquivo, com o total, timestamp de alteração,
 primeiro local livre e posição do primeiro registro.
-De qualquer forma, para insert, não lemos NENHUM registro, apenas informações no header.
+De qualquer forma, para insert, não lemos nenhum registro, caso não haja espaço vazio,
+e lemos apenas 1 caso exista (para saber qual é o próximo vazio e atualizar o header).
 
 Select:
 
@@ -95,7 +96,96 @@ Ex: First_Empty: 500. Indo para o espaço 500, encontramos '325'. Indo para 325,
 
 Arquivo Heap Fixo COM ordenação
 
+A modelagem do HEADER do arquivo principal nesse caso é idêntica ao caso sem ordenação.
+Optamos por manter o mesmo formato de arquivo, apesar de não usarmos todos os campos
+nesse caso. Por exemplo, o campo 'First_Empty' perde o sentido, pois usaremos deleção lógica
+e o insert é feito num arquivo de extensão, e na hora do merge tudo deve ser reordenado
+no arquivo principal, se baseando no campo de ordenação passado ao criar a classe.
 
+A modelagem do arquivo de extensão é bem simplificada. Segue o formato 'int;R1R2R3...',
+onde int é um inteiro de até X digitos(esse limite de digitos é controlado no arquivo
+de configuração e pode ser aumentado ou reduzido, default é 3) e representa o total de registros
+atualmente presentes na tabela de extensão. R1, R2, R3 seriam os registros em si.
+Como fazemos deleção lógica, o primeiro byte de cada registro representa o estado atual
+daquele registro: 'Y' se estiver 'ativo', 'N' se foi logicamente deletado (poderia ser 0 ou 1,
+mas deixei assim pra ficar mais fácil de debugar e vai ser 1 byte de qualquer forma).
+Existe também uma variável no arquivo de config que determina o tamanho máximo desse arquivo
+de extensão, ou seja, é um número que representa o total máximo de registros que podem existir
+nesse arquivo de extensão em qualquer momento (pode ser burlado fazendo um bulk insert, pois o
+merge seria feito após a inserção de todos os registros, então o arquivo de extensão teria,
+temporariamente, mais do que o permitido; é um caso que ainda não parei pra resolver).
+Assim que esse threshold é atingido, um merge é realizado e o arquivo de extensão é limpado.
+
+INSERT:
+
+Fazemos insert de qualquer registro no final do arquivo de extensão. Note que, por conta disso,
+o arquivo de extensão não é ordenado, apenas o arquivo principal. 
+Por que fizemos dessa forma?
+Suponha o seguinte caso: Temos um arquivo de extensão com 2 registros: Bruno e Pedro.
+Queremos fazer o insert de um novo registro, digamos Heric. Se quiséssemos manter a ordenação,
+teriamos que ler o arquivo registro a registro, e parar quando o registro no arquivo for
+"maior" (no sentido da ordenação, nesse caso alfabeticamente) do que o que vamos inserir.
+A partir daí, temos duas opções que considero viáveis:
+1) Criar um novo arquivo de extensão, escrever tudo que lemos até agora do antigo (nesse caso,
+o header e o registro Bruno), escrevemos Heric, ai lemos todo o resto do arquivo (no caso,
+seria apenas o registro Pedro, mas se tivessem muitos, poderíamos ler em partes para evitar
+trazer tudo para memória) e inserimos. Finalmente, apagamos o arquivo de extensão antigo,
+e renomeamos o novo.
+2) Idem ao 1, exceto que, nesse caso, ao acharmos a 'posição' que o registro novo deve entrar,
+lemos todo o resto do arquivo para memória, escrevemos o registro Heric sobrescrevendo o registro
+Pedro, e depois escrevemos tudo que lemos para a memória.
+Cada uma das opções tem vantagens e desvantagens, mas em ambas, temos q ler todos os registros
+para fazer um simples insert. Isso pode não ser tão ruim em um cenário no qual fazemos apenas
+inserts em bulk, e poucas vezes. Entretanto, de forma geral, essa abordagem tende a ser muito
+ruim e custosa em termos de I/O de blocos.
+Dessa forma, optamos por 'pagar o preço' de ter uma pequena parte da base de dados não ordenada
+(apenas o arquivo de extensão), e ganhamos a possibilidade de inserts no arquivo de extensão
+sem a necessidade de lê-lo todo, economizando muitas operações de I/O.
+No 'retorno' do select (é apenas um print, por isso não é tecnicamente um retorno) existe uma
+coluna criada chamada 'file_location', que deixa bem transparente em qual arquivo se encontra
+o(s) registro(s) procurado(s).
+
+Se o threshold do arquivo de extensão for atingido após o insert, um merge com o arquivo
+principal é realizado.
+Esse merge basicamente percorre simultaneamente o arquivo principal e o de extensão,
+e escreve um arquivo novo juntando os registros de ambos, ordenando pela coluna
+desejada pelo usuário (detalhes da implementação podem ser conferidos no código,
+a função é a _merge_extension_table).
+
+OBS: Todos os arquivos com byte lógico igual a 'N' são pulados na hora do merge, portanto
+são efetivamente deletados.
+
+OBS2: Existem outras opções para resolver o problema do arquivo no insert na tabela de extensão.
+Entretanto, exigiriam outras estruturas secundárias e a complexidade aumentaria consideravelmente.
+Dessa forma, optamos por não entrar tão a fundo.
+
+SELECT:
+
+Basicamente, além de ler os registros no arquivo principal, temos que ler também no arquivo
+de extensão e conferir o byte lógico para ver se aquele registro não foi logicamente deletado.
+
+Existe uma otimização que não foi feita, que é no caso do select ser feito em relação
+à coluna sob a qual o arquivo está ordenado.
+Nesse caso, poderíamos ler registros até que o registro lido seja 'maior' que o item
+no nosso select, pois como o arquivo principal está ordenado, se ele não tiver aparecido até
+aquele momento, não aparecerá mais (ainda temos q conferir o de extensão, mas no principal
+sabemos que não estará). Isso ajudaria em todos os tipos de select no caso de ser a coluna
+de ordenação.
+Apesar da implementação não ser difícil, acabamos priorizando ter um código funcional
+de forma geral, e depois implementaríamos as otimização particulares à cada tipo
+de estrutura de organização de arquivos. O tempo ficou um pouco corrido, então acabamos não
+conseguindo implementar todas elas.
+
+Dito tudo isso, atualmente, o select lê todos os registros, exceto no caso do select de apenas
+um registro, que ai lemos só até encontrá-lo. Entretando, como explicado anteriormente,
+pode ser otimizado.
+
+
+DELETE
+
+É a parte mais fácil, é basicamente um select para achar a posição do registro,
+seguido de um write no arquivo, trocando o byte lógico de 'Y' para 'N' (note que podemos
+simplesmente sobrescrever, pois ocupam o mesmo tamanho).
 ---------------------
 
 Arquivo Heap Variável
